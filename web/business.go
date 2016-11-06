@@ -25,7 +25,7 @@ type Task struct {
 
 // Method to do a job on payload
 func (t *Task) Run() error {
-	interval := time.Duration(RAND.Int63n(100)) * time.Second // duration in seconds
+	interval := time.Duration(RAND.Int63n(100)) * time.Millisecond // duration in seconds
 	// Usage example
 	request := Decorate(DefaultProcessor,
 		Pause(interval),
@@ -93,13 +93,14 @@ type Dispatcher struct {
 	// A pool of workers channels that are registered with the dispatcher
 	JobPool    chan chan Job
 	MaxWorkers int
+	Metrics    Metrics
 }
 
-func NewDispatcher(maxWorkers, maxQueue int) *Dispatcher {
+func NewDispatcher(maxWorkers, maxQueue int, metrics Metrics) *Dispatcher {
 	pool := make(chan chan Job, maxWorkers)
 	JobQueue = make(chan Job, maxQueue)
 	RAND = rand.New(rand.NewSource(99))
-	return &Dispatcher{JobPool: pool, MaxWorkers: maxWorkers}
+	return &Dispatcher{JobPool: pool, MaxWorkers: maxWorkers, Metrics: metrics}
 }
 
 func (d *Dispatcher) Run() {
@@ -116,6 +117,7 @@ func (d *Dispatcher) dispatch() {
 	for {
 		select {
 		case job := <-JobQueue:
+			d.Metrics.Meter.Mark(1)
 			// a job request has been received
 			go func(job Job) {
 				// try to obtain a worker job channel that is available.
