@@ -46,9 +46,8 @@ func Logging(l *log.Logger) Decorator {
 func Pause(interval time.Duration) Decorator {
 	return func(r Request) Request {
 		return RequestFunc(func(t *Task) error {
-			v := interval * time.Millisecond
 			log.Println("Task", t, "is paused by", interval)
-			time.Sleep(v)
+			time.Sleep(interval)
 			return r.Process(t)
 		})
 	}

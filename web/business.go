@@ -25,11 +25,10 @@ type Task struct {
 
 // Method to do a job on payload
 func (t *Task) Run() error {
-	interval := time.Duration(RAND.Int63n(100)) * time.Millisecond // duration in seconds
+	interval := time.Duration(RAND.Int63n(10)) * time.Second
 	// Usage example
 	request := Decorate(DefaultProcessor,
 		Pause(interval),
-		Tracer(),
 		Logging(log.New(os.Stdout, "request: ", log.LstdFlags)),
 	)
 	request.Process(t)
@@ -46,13 +45,15 @@ var JobQueue chan Job
 
 // Worker represents the worker that executes the job
 type Worker struct {
+	Id         int
 	JobPool    chan chan Job
 	JobChannel chan Job
 	quit       chan bool
 }
 
-func NewWorker(jobPool chan chan Job) Worker {
+func NewWorker(wid int, jobPool chan chan Job) Worker {
 	return Worker{
+		Id:         wid,
 		JobPool:    jobPool,
 		JobChannel: make(chan Job),
 		quit:       make(chan bool)}
@@ -68,6 +69,7 @@ func (w Worker) Start() {
 
 			select {
 			case job := <-w.JobChannel:
+				ServerMetrics.WorkerMeters[w.Id].Mark(1)
 				// we have received a work request.
 				if err := job.Task.Run(); err != nil {
 					log.Println("Error in job.Task.Run:", err.Error())
@@ -93,20 +95,20 @@ type Dispatcher struct {
 	// A pool of workers channels that are registered with the dispatcher
 	JobPool    chan chan Job
 	MaxWorkers int
-	Metrics    Metrics
 }
 
-func NewDispatcher(maxWorkers, maxQueue int, metrics Metrics) *Dispatcher {
+func NewDispatcher(maxWorkers, maxQueue int) *Dispatcher {
 	pool := make(chan chan Job, maxWorkers)
 	JobQueue = make(chan Job, maxQueue)
 	RAND = rand.New(rand.NewSource(99))
-	return &Dispatcher{JobPool: pool, MaxWorkers: maxWorkers, Metrics: metrics}
+	return &Dispatcher{JobPool: pool, MaxWorkers: maxWorkers}
 }
 
 func (d *Dispatcher) Run() {
 	// starting n number of workers
 	for i := 0; i < d.MaxWorkers; i++ {
-		worker := NewWorker(d.JobPool)
+		worker := NewWorker(i, d.JobPool)
+		ServerMetrics.WorkerMeters[i].Mark(0)
 		worker.Start()
 	}
 
@@ -117,7 +119,7 @@ func (d *Dispatcher) dispatch() {
 	for {
 		select {
 		case job := <-JobQueue:
-			d.Metrics.Meter.Mark(1)
+			ServerMetrics.Meter.Mark(1)
 			// a job request has been received
 			go func(job Job) {
 				// try to obtain a worker job channel that is available.
